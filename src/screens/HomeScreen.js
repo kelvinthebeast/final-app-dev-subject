@@ -1,18 +1,20 @@
+// File: src/screens/HomeScreen.js
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, TextInput } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, TextInput, Modal, Alert } from 'react-native';
 import useBookStore from '../store/useBookStore';
 
 const HomeScreen = ({ navigation }) => {
   // 1. Lấy dữ liệu và hàm từ Store
-  const { books, readingGoal, initData, resetStore } = useBookStore();
+  const { books, readingGoal, setReadingGoal, initData } = useBookStore();
+  
   const [searchText, setSearchText] = useState('');
+  
+  // --- STATE CHO MODAL SỬA MỤC TIÊU ---
+  const [modalVisible, setModalVisible] = useState(false);
+  const [tempGoal, setTempGoal] = useState(''); // Lưu số tạm thời khi nhập
 
-  // 2. Kích hoạt nạp dữ liệu JSON khi mở màn hình
+  // 2. Kích hoạt nạp dữ liệu (Chạy 1 lần)
   useEffect(() => {
-    // Mẹo nhỏ: Reset trước để xóa dữ liệu rác cũ, sau đó mới nạp JSON mới
-    // Sau khi chạy thành công lần đầu, bạn có thể comment dòng resetStore() lại
-    // resetStore(); 
-    
     setTimeout(() => {
         initData();
     }, 100);
@@ -20,15 +22,30 @@ const HomeScreen = ({ navigation }) => {
 
   // 3. Tính toán thống kê
   const finishedBooks = books.filter(b => b.status === 'finished').length;
-  // Tránh chia cho 0 hoặc null
   const safeGoal = readingGoal || 1; 
   const progressPercent = Math.min((finishedBooks / safeGoal) * 100, 100);
 
-  // 4. Logic tìm kiếm
+  // 4. Filter tìm kiếm
   const filteredBooks = books.filter(book => 
     book.title.toLowerCase().includes(searchText.toLowerCase()) || 
     book.author.toLowerCase().includes(searchText.toLowerCase())
   );
+
+  // --- HÀM XỬ LÝ SỬA MỤC TIÊU ---
+  const openGoalModal = () => {
+    setTempGoal(readingGoal.toString()); // Điền sẵn số cũ
+    setModalVisible(true);
+  };
+
+  const handleSaveGoal = () => {
+    const newGoal = parseInt(tempGoal);
+    if (isNaN(newGoal) || newGoal <= 0) {
+        Alert.alert("Lỗi", "Vui lòng nhập số lớn hơn 0");
+        return;
+    }
+    setReadingGoal(newGoal); // Lưu vào store
+    setModalVisible(false);  // Tắt modal
+  };
 
   const renderItem = ({ item }) => (
     <TouchableOpacity 
@@ -59,21 +76,24 @@ const HomeScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      {/* SECTION MỤC TIÊU */}
-      <View style={styles.goalCard}>
-        <View style={styles.goalHeader}>
-            <Text style={styles.goalTitle}>🎯 Mục tiêu năm nay</Text>
-            <Text style={styles.goalCount}>{finishedBooks}/{safeGoal} cuốn</Text>
+      
+      {/* 1. SECTION MỤC TIÊU (Bấm vào để sửa) */}
+      <TouchableOpacity activeOpacity={0.8} onPress={openGoalModal}>
+        <View style={styles.goalCard}>
+            <View style={styles.goalHeader}>
+                <Text style={styles.goalTitle}>🎯 Mục tiêu năm nay <Text style={{fontSize: 12, color: '#007AFF'}}>(Sửa)</Text></Text>
+                <Text style={styles.goalCount}>{finishedBooks}/{safeGoal} cuốn</Text>
+            </View>
+            <View style={styles.progressBarBg}>
+                <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+            </View>
+            <Text style={styles.goalSub}>
+                {progressPercent === 100 ? '🎉 Xuất sắc! Hoàn thành mục tiêu.' : 'Bấm vào đây để thay đổi mục tiêu đọc sách.'}
+            </Text>
         </View>
-        <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-        </View>
-        <Text style={styles.goalSub}>
-            {progressPercent === 100 ? '🎉 Xuất sắc! Hoàn thành mục tiêu.' : 'Cố lên! Hãy đọc thêm sách nhé.'}
-        </Text>
-      </View>
+      </TouchableOpacity>
 
-      {/* SEARCH BAR */}
+      {/* 2. SEARCH BAR */}
       <View style={styles.searchContainer}>
         <TextInput 
             style={styles.searchInput}
@@ -83,7 +103,7 @@ const HomeScreen = ({ navigation }) => {
         />
       </View>
 
-      {/* LIST */}
+      {/* 3. LIST */}
       <FlatList
         data={filteredBooks}
         keyExtractor={(item) => item.id}
@@ -91,8 +111,7 @@ const HomeScreen = ({ navigation }) => {
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>Đang tải dữ liệu...</Text>
-            <Text style={styles.emptySubText}>Nếu không thấy sách, hãy thử reload lại app.</Text>
+            <Text style={styles.emptyText}>Chưa có sách nào.</Text>
           </View>
         }
       />
@@ -100,12 +119,54 @@ const HomeScreen = ({ navigation }) => {
       <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('AddBook')}>
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
+
+      {/* --- MODAL NHẬP MỤC TIÊU (Ẩn/Hiện) --- */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Đặt mục tiêu đọc sách 📚</Text>
+                <Text style={styles.modalSub}>Bạn muốn đọc bao nhiêu cuốn năm nay?</Text>
+                
+                <TextInput 
+                    style={styles.modalInput}
+                    keyboardType="numeric"
+                    value={tempGoal}
+                    onChangeText={setTempGoal}
+                    autoFocus={true}
+                />
+
+                <View style={styles.modalButtons}>
+                    <TouchableOpacity 
+                        style={[styles.modalBtn, styles.cancelBtn]} 
+                        onPress={() => setModalVisible(false)}
+                    >
+                        <Text style={styles.cancelText}>Huỷ</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                        style={[styles.modalBtn, styles.saveBtn]} 
+                        onPress={handleSaveGoal}
+                    >
+                        <Text style={styles.saveText}>Lưu Mục Tiêu</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+      </Modal>
+
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
+  
+  // Goal Card
   goalCard: { backgroundColor: '#fff', margin: 15, padding: 15, borderRadius: 12, elevation: 2 },
   goalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
   goalTitle: { fontWeight: 'bold', fontSize: 16 },
@@ -113,8 +174,12 @@ const styles = StyleSheet.create({
   progressBarBg: { height: 8, backgroundColor: '#eee', borderRadius: 4, overflow: 'hidden', marginBottom: 8 },
   progressBarFill: { height: '100%', backgroundColor: '#007AFF', borderRadius: 4 },
   goalSub: { fontSize: 12, color: '#666', fontStyle: 'italic' },
+
+  // Search
   searchContainer: { paddingHorizontal: 15, paddingBottom: 10 },
   searchInput: { backgroundColor: '#fff', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#ddd' },
+  
+  // List
   listContent: { paddingHorizontal: 15, paddingBottom: 80 },
   card: { flexDirection: 'row', backgroundColor: '#fff', marginBottom: 15, borderRadius: 10, padding: 10, elevation: 2 },
   coverPlaceholder: { width: 60, height: 90, backgroundColor: '#ddd', borderRadius: 5, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
@@ -128,9 +193,23 @@ const styles = StyleSheet.create({
   readTime: { fontSize: 11, color: '#FF9500', marginTop: 4 },
   emptyContainer: { alignItems: 'center', marginTop: 50 },
   emptyText: { color: '#888', fontWeight: 'bold' },
-  emptySubText: { color: '#aaa', fontSize: 12, marginTop: 5 },
+  
+  // FAB
   fab: { position: 'absolute', right: 20, bottom: 30, width: 60, height: 60, borderRadius: 30, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  fabText: { fontSize: 30, color: '#fff', marginTop: -2 }
+  fabText: { fontSize: 30, color: '#fff', marginTop: -2 },
+
+  // --- STYLES CHO MODAL ---
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: '80%', backgroundColor: '#fff', borderRadius: 15, padding: 20, alignItems: 'center', elevation: 5 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  modalSub: { color: '#666', marginBottom: 15, textAlign: 'center' },
+  modalInput: { width: '100%', borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, fontSize: 18, textAlign: 'center', marginBottom: 20 },
+  modalButtons: { flexDirection: 'row', width: '100%', justifyContent: 'space-between' },
+  modalBtn: { flex: 1, padding: 12, borderRadius: 8, alignItems: 'center', marginHorizontal: 5 },
+  cancelBtn: { backgroundColor: '#f5f5f5' },
+  saveBtn: { backgroundColor: '#007AFF' },
+  cancelText: { color: '#333', fontWeight: 'bold' },
+  saveText: { color: '#fff', fontWeight: 'bold' }
 });
 
 export default HomeScreen;
