@@ -10,6 +10,7 @@ import HomeScreen from './src/screens/HomeScreen';
 import AddBookScreen from './src/screens/AddBookScreen';
 import BookDetailScreen from './src/screens/BookDetailScreen';
 import ReadBookScreen from './src/screens/ReadBookScreen';
+import DashboardScreen from './src/screens/DashboardScreen';
 const Stack = createNativeStackNavigator();
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
             component={ReadingTimerScreen} 
             options={{ headerShown: false }} // Ẩn header để tập trung hoàn toàn
           />
+          <Stack.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Thống kê' }} />
           <Stack.Screen name="ReadBook" component={ReadBookScreen} options={{ headerShown: false }} />
         </Stack.Navigator>
       </NavigationContainer>

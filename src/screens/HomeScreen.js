@@ -11,7 +11,7 @@ const HomeScreen = ({ navigation }) => {
   
   // --- STATE CHO MODAL SỬA MỤC TIÊU ---
   const [modalVisible, setModalVisible] = useState(false);
-  const [tempGoal, setTempGoal] = useState(''); // Lưu số tạm thời khi nhập
+  const [tempGoal, setTempGoal] = useState(''); 
 
   // 2. Kích hoạt nạp dữ liệu (Chạy 1 lần)
   useEffect(() => {
@@ -33,7 +33,7 @@ const HomeScreen = ({ navigation }) => {
 
   // --- HÀM XỬ LÝ SỬA MỤC TIÊU ---
   const openGoalModal = () => {
-    setTempGoal(readingGoal.toString()); // Điền sẵn số cũ
+    setTempGoal(readingGoal.toString());
     setModalVisible(true);
   };
 
@@ -43,8 +43,8 @@ const HomeScreen = ({ navigation }) => {
         Alert.alert("Lỗi", "Vui lòng nhập số lớn hơn 0");
         return;
     }
-    setReadingGoal(newGoal); // Lưu vào store
-    setModalVisible(false);  // Tắt modal
+    setReadingGoal(newGoal); 
+    setModalVisible(false);  
   };
 
   const renderItem = ({ item }) => (
@@ -77,7 +77,7 @@ const HomeScreen = ({ navigation }) => {
   return (
     <View style={styles.container}>
       
-      {/* 1. SECTION MỤC TIÊU (Bấm vào để sửa) */}
+      {/* 1. SECTION MỤC TIÊU */}
       <TouchableOpacity activeOpacity={0.8} onPress={openGoalModal}>
         <View style={styles.goalCard}>
             <View style={styles.goalHeader}>
@@ -91,6 +91,14 @@ const HomeScreen = ({ navigation }) => {
                 {progressPercent === 100 ? '🎉 Xuất sắc! Hoàn thành mục tiêu.' : 'Bấm vào đây để thay đổi mục tiêu đọc sách.'}
             </Text>
         </View>
+      </TouchableOpacity>
+
+      {/* ✅ SỬA LẠI: ĐƯA NÚT THỐNG KÊ RA ĐÂY (NẰM GIỮA MỤC TIÊU VÀ SEARCH) */}
+      <TouchableOpacity 
+         style={styles.statsButton}
+         onPress={() => navigation.navigate('Dashboard')}
+      >
+          <Text style={styles.statsText}>📊 Xem Thống Kê & Cài Đặt Nhắc Nhở ➔</Text>
       </TouchableOpacity>
 
       {/* 2. SEARCH BAR */}
@@ -120,7 +128,7 @@ const HomeScreen = ({ navigation }) => {
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
 
-      {/* --- MODAL NHẬP MỤC TIÊU (Ẩn/Hiện) --- */}
+      {/* --- MODAL NHẬP MỤC TIÊU --- */}
       <Modal
         animationType="fade"
         transparent={true}
@@ -154,6 +162,8 @@ const HomeScreen = ({ navigation }) => {
                     >
                         <Text style={styles.saveText}>Lưu Mục Tiêu</Text>
                     </TouchableOpacity>
+                    
+                    {/* ❌ ĐÃ XÓA NÚT THỐNG KÊ Ở ĐÂY VÌ NÓ BỊ SAI CHỖ */}
                 </View>
             </View>
         </View>
@@ -197,6 +207,25 @@ const styles = StyleSheet.create({
   // FAB
   fab: { position: 'absolute', right: 20, bottom: 30, width: 60, height: 60, borderRadius: 30, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   fabText: { fontSize: 30, color: '#fff', marginTop: -2 },
+
+  // Style cho nút Thống kê (Cập nhật lại cho đẹp)
+  statsButton: {
+      backgroundColor: '#fff', // Đổi nền trắng cho sạch
+      marginHorizontal: 15,
+      marginBottom: 15,
+      padding: 12,
+      borderRadius: 10, // Bo tròn nhẹ
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: '#007AFF', // Viền xanh
+      flexDirection: 'row',
+      justifyContent: 'center'
+  },
+  statsText: {
+      color: '#007AFF',
+      fontWeight: 'bold',
+      fontSize: 14
+  },
 
   // --- STYLES CHO MODAL ---
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
