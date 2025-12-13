@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// 1. IMPORT FILE JSON
 import initialBooks from '../data/initialBooks.json'; 
 
 const useBookStore = create(
@@ -11,11 +9,19 @@ const useBookStore = create(
       books: [],
       readingGoal: 10,
 
-      // --- ACTIONS CŨ (GIỮ NGUYÊN) ---
+      // Init Data
+      initData: () => {
+        const currentBooks = get().books;
+        if (currentBooks.length === 0) {
+          set({ books: initialBooks });
+        }
+      },
+
       setReadingGoal: (number) => set({ readingGoal: number }),
       
       addBook: (newBook) => set((state) => ({
-        books: [{ ...newBook, minutesRead: 0, sessions: 0 }, ...state.books] 
+        // Thêm trường lastPageRead: 0 mặc định
+        books: [{ ...newBook, minutesRead: 0, sessions: 0, lastPageRead: 0, quotes: [] }, ...state.books] 
       })),
 
       removeBook: (id) => set((state) => ({
@@ -28,6 +34,28 @@ const useBookStore = create(
         )
       })),
 
+    //   / --- MỚI: LƯU GHI CHÚ THEO TRANG ---
+      savePageNote: (bookId, pageIndex, noteContent) => set((state) => ({
+        books: state.books.map((book) => {
+          if (book.id === bookId) {
+            // Lấy danh sách note cũ
+            const currentNotes = book.pageNotes || {};
+            // Cập nhật note cho trang này (pageIndex chuyển thành string làm key)
+            const updatedNotes = { ...currentNotes, [pageIndex]: noteContent };
+            
+            return { ...book, pageNotes: updatedNotes };
+          }
+          return book;
+        })
+      })),
+      // --- MỚI: LƯU TRANG ĐANG ĐỌC ---
+      savePageProgress: (bookId, pageIndex) => set((state) => ({
+        books: state.books.map((book) => 
+          book.id === bookId ? { ...book, lastPageRead: pageIndex, lastRead: new Date().toISOString() } : book
+        )
+      })),
+      // -------------------------------
+
       addReadingSession: (bookId, minutes) => set((state) => ({
         books: state.books.map((book) => {
           if (book.id === bookId) {
@@ -35,25 +63,32 @@ const useBookStore = create(
               ...book,
               minutesRead: (book.minutesRead || 0) + minutes,
               sessions: (book.sessions || 0) + 1,
-              lastRead: new Date().toISOString()
             };
           }
           return book;
         })
       })),
 
-      // --- ACTION MỚI: INIT DATA ---
-      // Hàm này sẽ được gọi ở màn hình Home
-      initData: () => {
-        const currentBooks = get().books;
-        // Chỉ nạp nếu danh sách đang trống (tránh ghi đè dữ liệu user đang dùng)
-        if (currentBooks.length === 0) {
-          set({ books: initialBooks });
-          console.log("Đã nạp dữ liệu mẫu từ JSON!");
-        }
-      },
-      
-      // Hàm reset để test lại từ đầu (nếu cần)
+      addQuote: (bookId, content) => set((state) => ({
+        books: state.books.map((book) => {
+          if (book.id === bookId) {
+            const newQuote = { id: Date.now().toString(), content, date: new Date().toISOString() };
+            const currentQuotes = book.quotes || [];
+            return { ...book, quotes: [newQuote, ...currentQuotes] };
+          }
+          return book;
+        })
+      })),
+
+      deleteQuote: (bookId, quoteId) => set((state) => ({
+        books: state.books.map((book) => {
+          if (book.id === bookId && book.quotes) {
+            return { ...book, quotes: book.quotes.filter(q => q.id !== quoteId) };
+          }
+          return book;
+        })
+      })),
+
       resetStore: () => set({ books: [] }),
     }),
     {

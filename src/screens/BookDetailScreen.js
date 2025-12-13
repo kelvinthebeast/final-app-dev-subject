@@ -68,6 +68,11 @@ const BookDetailScreen = ({ route, navigation }) => {
             onPress={() => navigation.navigate('ReadBook', { bookId: book.id })}
         >
             <Text style={styles.readBtnText}>📖 ĐỌC NGAY</Text>
+            <Text style={styles.readBtnSub}>
+               {book.lastPageRead !== undefined && book.lastPageRead > 0
+                  ? `👉 Tiếp tục tại Trang ${book.lastPageRead + 1}`
+                  : `Bắt đầu đọc từ đầu`}
+            </Text>
             <Text style={styles.readBtnSub}>Đọc & Tự động ghi giờ</Text>
         </TouchableOpacity>
 
