@@ -1,82 +1,144 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
-import PagerView from 'react-native-pager-view'; // Thư viện lật trang
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Alert } from 'react-native';
+import PagerView from 'react-native-pager-view';
+import * as Speech from 'expo-speech'; 
+import { useKeepAwake } from 'expo-keep-awake'; // Giữ màn hình sáng khi đọc
 import useBookStore from '../store/useBookStore';
 
 const ReadBookScreen = ({ route, navigation }) => {
+  useKeepAwake(); // Kích hoạt chế độ không tắt màn hình
+
   const { bookId } = route.params;
-  const { books } = useBookStore();
+  const { books, addReadingSession } = useBookStore(); // Lấy hàm lưu thời gian
   const book = books.find(b => b.id === bookId);
 
   // --- STATE ---
   const [fontSize, setFontSize] = useState(18);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [currentPage, setCurrentPage] = useState(0); // Trang hiện tại (Bắt đầu từ 0)
+  const [currentPage, setCurrentPage] = useState(0);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  
+  // --- STATE TIMER ---
+  const [secondsRead, setSecondsRead] = useState(0);
+  const startTimeRef = useRef(new Date()); // Lưu mốc thời gian bắt đầu vào đọc
 
   if (!book) return null;
 
   const bgStyle = isDarkMode ? '#1a1a1a' : '#fff';
   const textStyle = isDarkMode ? '#ddd' : '#222';
 
-  // --- THUẬT TOÁN TỰ ĐỘNG CẮT TRANG ---
-  // Sử dụng useMemo để chỉ tính toán lại khi nội dung hoặc cỡ chữ thay đổi
+  // --- 1. LOGIC TỰ ĐỘNG ĐẾM GIỜ ---
+  useEffect(() => {
+    // Tạo bộ đếm mỗi giây tăng 1 lần để hiển thị cho vui mắt
+    const timer = setInterval(() => {
+      setSecondsRead(prev => prev + 1);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // --- 2. LOGIC LƯU KHI THOÁT ---
+  const handleGoBack = () => {
+    Speech.stop(); // Tắt giọng đọc nếu có
+
+    // Tính tổng thời gian thực tế (Lấy giờ hiện tại - giờ bắt đầu)
+    // Cách này chính xác hơn là đếm giây bằng interval
+    const endTime = new Date();
+    const durationInSeconds = (endTime - startTimeRef.current) / 1000;
+    const minutes = Math.ceil(durationInSeconds / 60); // Làm tròn lên phút
+
+    if (minutes > 0) {
+      // Lưu vào Store
+      addReadingSession(book.id, minutes);
+      
+      // Thông báo nhẹ (hoặc có thể bỏ đi cho mượt)
+      // Alert.alert("Lưu tiến độ", `Bạn đã đọc được ${minutes} phút.`);
+    }
+
+    navigation.goBack();
+  };
+
+  // Format giây thành MM:SS để hiển thị
+  const formatTime = (secs) => {
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${mins}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  // --- THUẬT TOÁN CẮT TRANG (GIỮ NGUYÊN) ---
   const pages = useMemo(() => {
     if (!book.content) return ["Không có nội dung."];
-    
-    // Logic: Cắt theo đoạn văn (xuống dòng) để tránh đứt chữ
     const paragraphs = book.content.split('\n');
     let generatedPages = [];
     let currentPageContent = '';
-    
-    // Ước lượng giới hạn ký tự mỗi trang (Tùy cỡ chữ mà chứa được nhiều hay ít)
-    // Cỡ chữ càng to -> Chứa càng ít ký tự
     const CHAR_LIMIT = fontSize > 20 ? 600 : 900; 
 
     paragraphs.forEach((para) => {
-      // Nếu cộng thêm đoạn này mà vẫn nhỏ hơn giới hạn -> Gộp vào trang hiện tại
       if ((currentPageContent.length + para.length) < CHAR_LIMIT) {
         currentPageContent += para + '\n';
       } else {
-        // Nếu dài quá -> Đẩy trang cũ vào mảng -> Tạo trang mới
-        if (currentPageContent.trim().length > 0) {
-            generatedPages.push(currentPageContent);
-        }
+        if (currentPageContent.trim().length > 0) generatedPages.push(currentPageContent);
         currentPageContent = para + '\n';
       }
     });
-
-    // Đẩy trang cuối cùng vào
-    if (currentPageContent.trim().length > 0) {
-      generatedPages.push(currentPageContent);
-    }
-
+    if (currentPageContent.trim().length > 0) generatedPages.push(currentPageContent);
     return generatedPages.length > 0 ? generatedPages : ["Nội dung quá ngắn."];
   }, [book.content, fontSize]); 
-  // Chú ý: Khi đổi fontSize, số lượng trang sẽ thay đổi
+
+  // --- LOGIC GIỌNG ĐỌC ---
+  const toggleSpeech = () => {
+    if (isSpeaking) {
+      Speech.stop();
+      setIsSpeaking(false);
+    } else {
+      Speech.speak(pages[currentPage], {
+        language: 'vi-VN', pitch: 1.0, rate: 0.9,
+        onDone: () => setIsSpeaking(false),
+        onStopped: () => setIsSpeaking(false),
+      });
+      setIsSpeaking(true);
+    }
+  };
+
+  useEffect(() => {
+      if(isSpeaking) { Speech.stop(); setIsSpeaking(false); }
+  }, [currentPage]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: bgStyle }}>
       
-      {/* 1. HEADER CÔNG CỤ */}
+      {/* TOOLBAR */}
       <View style={[styles.toolbar, { borderBottomColor: isDarkMode ? '#333' : '#eee' }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={{ color: '#007AFF', fontSize: 16, fontWeight: 'bold' }}>‹ Thoát</Text>
+        {/* Nút thoát thay bằng handleGoBack để lưu giờ */}
+        <TouchableOpacity onPress={handleGoBack} style={styles.backBtn}>
+          <Text style={{ color: '#007AFF', fontSize: 16, fontWeight: 'bold' }}>‹ Xong</Text>
         </TouchableOpacity>
 
+        {/* HIỂN THỊ ĐỒNG HỒ NHỎ Ở GIỮA */}
+        <View style={styles.timerTag}>
+            <Text style={[styles.timerText, {color: isDarkMode ? '#888' : '#666'}]}>
+                ⏱️ {formatTime(secondsRead)}
+            </Text>
+        </View>
+
         <View style={styles.settings}>
-          <TouchableOpacity onPress={() => setFontSize(Math.max(14, fontSize - 2))} style={styles.btn}>
-            <Text style={[styles.btnText, { color: textStyle }]}>A-</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setFontSize(Math.min(30, fontSize + 2))} style={styles.btn}>
-            <Text style={[styles.btnText, { color: textStyle }]}>A+</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setIsDarkMode(!isDarkMode)} style={[styles.btn, styles.themeBtn]}>
-             <Text style={styles.themeText}>{isDarkMode ? '☀️' : '🌙'}</Text>
-          </TouchableOpacity>
+            <TouchableOpacity onPress={toggleSpeech} style={[styles.btn, isSpeaking && styles.speakingBtn]}>
+                <Text style={styles.btnIcon}>{isSpeaking ? '⏹️' : '🔊'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => setFontSize(Math.max(14, fontSize - 2))} style={styles.btn}>
+                <Text style={[styles.btnText, { color: textStyle }]}>A-</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setFontSize(Math.min(30, fontSize + 2))} style={styles.btn}>
+                <Text style={[styles.btnText, { color: textStyle }]}>A+</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setIsDarkMode(!isDarkMode)} style={[styles.btn, styles.themeBtn]}>
+                <Text style={styles.themeText}>{isDarkMode ? '☀️' : '🌙'}</Text>
+            </TouchableOpacity>
         </View>
       </View>
 
-      {/* 2. PAGER VIEW (KHUNG LẬT TRANG) */}
+      {/* PAGER VIEW */}
       <PagerView 
         style={styles.pagerView} 
         initialPage={0} 
@@ -89,19 +151,17 @@ const ReadBookScreen = ({ route, navigation }) => {
                 <Text style={[styles.content, { fontSize: fontSize, color: textStyle, lineHeight: fontSize * 1.6 }]}>
                   {pageContent}
                 </Text>
-                {/* Khoảng trống dưới cùng để không bị che bởi số trang */}
                 <View style={{height: 50}}/> 
             </ScrollView>
           </View>
         ))}
       </PagerView>
 
-      {/* 3. FOOTER (SỐ TRANG) */}
+      {/* FOOTER */}
       <View style={[styles.footer, { backgroundColor: bgStyle, borderTopColor: isDarkMode ? '#333' : '#eee' }]}>
          <Text style={{ color: '#888', fontSize: 12 }}>
             Trang {currentPage + 1} / {pages.length}
          </Text>
-         {/* Thanh tiến độ đọc */}
          <View style={styles.progressBarBg}>
             <View style={[styles.progressBarFill, { width: `${((currentPage + 1) / pages.length) * 100}%` }]} />
          </View>
@@ -114,21 +174,30 @@ const ReadBookScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
   toolbar: { 
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', 
-    padding: 15, borderBottomWidth: 1, paddingTop: 40 
+    padding: 10, borderBottomWidth: 1, paddingTop: 40 
   },
+  backBtn: { padding: 5, width: 60 },
+  
+  // Style cho đồng hồ nhỏ
+  timerTag: { backgroundColor: '#f0f0f0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  timerText: { fontSize: 12, fontWeight: 'bold', fontVariant: ['tabular-nums'] },
+
   settings: { flexDirection: 'row', alignItems: 'center' },
-  btn: { marginHorizontal: 8, padding: 5 },
-  btnText: { fontSize: 20, fontWeight: 'bold' },
-  themeBtn: { backgroundColor: '#eee', borderRadius: 15, width: 32, height: 32, justifyContent: 'center', alignItems: 'center' },
+  btn: { marginHorizontal: 2, padding: 5 },
+  speakingBtn: { backgroundColor: '#ffebee', borderRadius: 5 },
+  btnIcon: { fontSize: 18 },
+  btnText: { fontSize: 18, fontWeight: 'bold' },
+  themeBtn: { backgroundColor: '#eee', borderRadius: 15, width: 28, height: 28, justifyContent: 'center', alignItems: 'center' },
+  themeText: { fontSize: 14 },
   
   pagerView: { flex: 1 },
-  pageContainer: { padding: 20, flex: 1 }, // flex: 1 để chiếm hết khung
+  pageContainer: { padding: 20, flex: 1 },
   
   bookTitle: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 20, textTransform: 'uppercase' },
   content: { textAlign: 'justify' },
 
   footer: { 
-    height: 50, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', 
+    height: 40, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', 
     paddingHorizontal: 20, borderTopWidth: 1
   },
   progressBarBg: { width: 100, height: 4, backgroundColor: '#eee', borderRadius: 2 },
