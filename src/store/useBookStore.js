@@ -3,18 +3,28 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import initialBooks from '../data/initialBooks.json'; 
 
+// 1. ĐỊNH NGHĨA DANH SÁCH CẤP BẬC (Export ra để Dashboard dùng)
+export const RANKS = [
+    { id: 1, minMinutes: 0, title: "Người Mới", icon: "🌱", message: "Hành trình vạn dặm bắt đầu từ trang sách đầu tiên." },
+    { id: 2, minMinutes: 30, title: "Tập Sự", icon: "🐛", message: "Bạn đã bắt đầu hình thành thói quen đọc sách!" },
+    { id: 3, minMinutes: 120, title: "Mọt Sách", icon: "📚", message: "Kiến thức của bạn đang dày lên từng ngày." },
+    { id: 4, minMinutes: 300, title: "Học Giả", icon: "🎓", message: "Sự uyên bác toát ra từ con người bạn." },
+    { id: 5, minMinutes: 600, title: "Đại Sư", icon: "🧙‍♂️", message: "Bạn là kho tàng tri thức sống!" },
+    { id: 6, minMinutes: 1000, title: "Huyền Thoại", icon: "👑", message: "Đỉnh cao trí tuệ! Không ai sánh kịp." },
+];
+
 const useBookStore = create(
   persist(
     (set, get) => ({
       books: [],
       readingGoal: 10,
       
-      // --- DỮ LIỆU MỚI CHO BIỂU ĐỒ ---
-      // Lưu dạng: { "2023-12-01": 30, "2023-12-02": 15 } (Ngày: Số phút)
-      dailyReadingStats: {},
+      // --- DỮ LIỆU THỐNG KÊ ---
+      dailyReadingStats: {}, // { "2023-12-01": 30 }
+      totalMinutesRead: 0,   // 👇 MỚI: Tổng thời gian đọc tích lũy toàn bộ (để tính Rank)
       
       // --- CÀI ĐẶT NHẮC NHỞ ---
-      reminderTime: null, // Giờ nhắc (ví dụ: { hour: 20, minute: 0 })
+      reminderTime: null, 
       isReminderEnabled: false,
 
       // --- INIT DATA ---
@@ -25,7 +35,6 @@ const useBookStore = create(
 
       setReadingGoal: (number) => set({ readingGoal: number }),
       
-      // Cập nhật trạng thái nhắc nhở
       setReminder: (enabled, time) => set({ isReminderEnabled: enabled, reminderTime: time }),
 
       addBook: (newBook) => set((state) => ({
@@ -44,9 +53,21 @@ const useBookStore = create(
         books: state.books.map((book) => book.id === bookId ? { ...book, lastPageRead: pageIndex, lastRead: new Date().toISOString() } : book)
       })),
 
-      // --- QUAN TRỌNG: CẬP NHẬT LỊCH SỬ ĐỌC CHO BIỂU ĐỒ ---
-      addReadingSession: (bookId, minutes) => set((state) => {
-        // 1. Cập nhật sách
+      // --- 🔥 QUAN TRỌNG: CẬP NHẬT LỊCH SỬ ĐỌC & TÍNH RANK ---
+      // Hàm này đã được viết lại để trả về 'newRank' nếu người dùng lên cấp
+      addReadingSession: (bookId, minutes) => {
+        const state = get(); // Lấy state hiện tại để tính toán trước
+        
+        // 1. Tính tổng thời gian mới
+        const currentTotal = state.totalMinutesRead || 0;
+        const newTotal = currentTotal + minutes;
+
+        // 2. Kiểm tra Rank cũ và Rank mới
+        // slice().reverse() để tìm từ rank cao nhất xuống thấp nhất
+        const oldRank = RANKS.slice().reverse().find(r => currentTotal >= r.minMinutes) || RANKS[0];
+        const newRank = RANKS.slice().reverse().find(r => newTotal >= r.minMinutes) || RANKS[0];
+
+        // 3. Cập nhật sách
         const updatedBooks = state.books.map((book) => {
           if (book.id === bookId) {
             return {
@@ -58,20 +79,26 @@ const useBookStore = create(
           return book;
         });
 
-        // 2. Cập nhật thống kê ngày (YYYY-MM-DD)
+        // 4. Cập nhật thống kê ngày
         const todayKey = new Date().toISOString().split('T')[0];
-        const currentDailyStats = { ...state.dailyReadingStats };
-        
-        // Cộng dồn phút vào ngày hôm nay
-        currentDailyStats[todayKey] = (currentDailyStats[todayKey] || 0) + minutes;
+        const updatedDailyStats = { ...state.dailyReadingStats };
+        updatedDailyStats[todayKey] = (updatedDailyStats[todayKey] || 0) + minutes;
 
-        return { 
-          books: updatedBooks,
-          dailyReadingStats: currentDailyStats
-        };
-      }),
+        // 5. Lưu tất cả vào Store
+        set({
+            books: updatedBooks,
+            dailyReadingStats: updatedDailyStats,
+            totalMinutesRead: newTotal, // Lưu tổng thời gian mới
+        });
 
-      // ... (Các hàm quote, log cũ giữ nguyên)
+        // 6. Trả về Rank mới nếu có sự thăng cấp (để UI hiện Modal chúc mừng)
+        if (newRank.id > oldRank.id) {
+            return newRank; 
+        }
+        return null; // Không lên cấp
+      },
+
+      // ... (Các hàm Review/Quote/Note giữ nguyên) ...
       addReview: (bookId, content, rating) => set((state) => ({
         books: state.books.map((book) => {
           if (book.id === bookId) {
@@ -111,7 +138,18 @@ const useBookStore = create(
         })
       })),
 
-      resetStore: () => set({ books: [], dailyReadingStats: {} }),
+      // --- RESTORE DATA (Đã cập nhật để nạp đủ dữ liệu) ---
+      restoreData: (newData) => {
+        set((state) => ({
+            ...state,
+            books: newData.books || [],
+            dailyReadingStats: newData.dailyReadingStats || {}, // Fix đúng key
+            totalMinutesRead: newData.totalMinutesRead || 0,    // Nạp lại tổng thời gian
+            readingGoal: newData.readingGoal || 10,
+            isReminderEnabled: newData.isReminderEnabled || false,
+            reminderTime: newData.reminderTime || null
+        }));
+      },
     }),
     {
       name: 'book-storage',
