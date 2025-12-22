@@ -12,7 +12,8 @@ import BookDetailScreen from './src/screens/BookDetailScreen';
 import ReadBookScreen from './src/screens/ReadBookScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 const Stack = createNativeStackNavigator();
-
+import { configDotenv } from 'dotenv';
+configDotenv()
 export default function App() {
   return (
     <SafeAreaProvider>
