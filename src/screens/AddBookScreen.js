@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Image, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import useBookStore from '../store/useBookStore';
-
+// import * as FileSystem from 'expo-file-system/legacy';
 const AddBookScreen = ({ navigation, route }) => {
   // Lấy params gửi sang (nếu có sách cần sửa)
   const bookToEdit = route.params?.bookToEdit;
