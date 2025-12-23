@@ -1,14 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { 
+  View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, 
+  Modal, TextInput, KeyboardAvoidingView, Platform, Alert, StatusBar, Dimensions 
+} from 'react-native';
 import PagerView from 'react-native-pager-view';
 import * as Speech from 'expo-speech'; 
 import * as Sharing from 'expo-sharing'; 
 import { useKeepAwake } from 'expo-keep-awake'; 
 import useBookStore from '../store/useBookStore';
 
-// IMPORT FILE RỜI
-import LevelUpModal from '../components/LevelUpModal'; // UI Modal
-import { useReadingLogic } from '../../hooks/useReadingLogic'; // Logic Hook
+import LevelUpModal from '../components/LevelUpModal'; 
+import { useReadingLogic } from '../../hooks/useReadingLogic'; 
+
+const { width, height } = Dimensions.get('window');
 
 const ReadBookScreen = ({ route, navigation }) => {
   useKeepAwake();
@@ -16,11 +20,10 @@ const ReadBookScreen = ({ route, navigation }) => {
   const { books, savePageProgress, savePageNote } = useBookStore();
   const book = books.find(b => b.id === bookId);
 
-  // --- GỌI HOOK LOGIC (Cực gọn) ---
-  // Toàn bộ việc tính giờ, check rank nằm ở đây
+  // Hook Logic
   const { handleGoBack, showLevelUp, newRankData, closeLevelUp } = useReadingLogic(book, navigation);
 
-  // --- STATE GIAO DIỆN ---
+  // State
   const [fontSize, setFontSize] = useState(18);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -37,7 +40,6 @@ const ReadBookScreen = ({ route, navigation }) => {
   const textStyle = isDarkMode ? '#ddd' : '#222';
   const pageNote = book.pageNotes ? book.pageNotes[currentPage] : '';
 
-  // Timer hiển thị trên màn hình (chỉ để user nhìn cho vui)
   useEffect(() => {
     let timer;
     if (book.content) {
@@ -52,13 +54,15 @@ const ReadBookScreen = ({ route, navigation }) => {
     return `${mins}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // --- LOGIC PHÂN TRANG & TTS (Giữ nguyên) ---
+  // --- LOGIC PHÂN TRANG ---
   const pages = useMemo(() => {
     if (!book.content) return [];
     const paragraphs = book.content.split('\n');
     let generatedPages = [];
     let currentPageContent = '';
-    const CHAR_LIMIT = fontSize > 20 ? 600 : 900; 
+    // Điều chỉnh giới hạn ký tự dựa trên kích thước màn hình và font size
+    const CHAR_LIMIT = (height > 800 ? 1000 : 700) - (fontSize * 10); 
+    
     paragraphs.forEach((para) => {
       if ((currentPageContent.length + para.length) < CHAR_LIMIT) {
         currentPageContent += para + '\n';
@@ -103,13 +107,13 @@ const ReadBookScreen = ({ route, navigation }) => {
       } else { Alert.alert("Lỗi", "Thiết bị không hỗ trợ mở file này."); }
   };
 
-  // --- RENDER ---
-  // View cho PDF
+  // --- RENDER VIEW FILE (PDF/EPUB) ---
   if (!book.content && book.fileUri) {
       return (
         <SafeAreaView style={[styles.safeArea, { backgroundColor: '#f5f5f5' }]}>
+            <View style={styles.headerSpacer} />
             <View style={styles.toolbar}>
-                <TouchableOpacity onPress={handleGoBack} style={styles.backBtn}>
+                <TouchableOpacity onPress={handleGoBack} style={styles.backBtn} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
                   <Text style={{ color: '#007AFF', fontSize: 16, fontWeight: 'bold' }}>‹ Xong</Text>
                 </TouchableOpacity>
             </View>
@@ -129,58 +133,97 @@ const ReadBookScreen = ({ route, navigation }) => {
       );
   }
 
-  // View cho Text Reader
+  // --- RENDER VIEW TEXT READER ---
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: bgStyle }]}>
+      {/* Spacer cho Android Status Bar */}
+      <View style={styles.headerSpacer} />
+
+      {/* TOOLBAR */}
       <View style={[styles.toolbar, { borderBottomColor: isDarkMode ? '#333' : '#eee' }]}>
-        <TouchableOpacity onPress={handleGoBack} style={styles.backBtn}>
+        <TouchableOpacity onPress={handleGoBack} style={styles.backBtn} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
           <Text style={{ color: '#007AFF', fontSize: 16, fontWeight: 'bold' }}>‹ Xong</Text>
         </TouchableOpacity>
+        
         <View style={styles.settings}>
-            <TouchableOpacity onPress={openNoteModal} style={styles.btn}><Text style={styles.btnIcon}>{pageNote ? '📝' : '✍️'}</Text></TouchableOpacity>
-            <TouchableOpacity onPress={toggleSpeech} style={[styles.btn, isSpeaking && styles.speakingBtn]}><Text style={styles.btnIcon}>{isSpeaking ? '⏹️' : '🔊'}</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => setFontSize(Math.max(14, fontSize - 2))} style={styles.btn}><Text style={[styles.btnText, { color: textStyle }]}>A-</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => setFontSize(Math.min(30, fontSize + 2))} style={styles.btn}><Text style={[styles.btnText, { color: textStyle }]}>A+</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => setIsDarkMode(!isDarkMode)} style={[styles.btn, styles.themeBtn]}><Text style={styles.themeText}>{isDarkMode ? '☀️' : '🌙'}</Text></TouchableOpacity>
+            <TouchableOpacity onPress={openNoteModal} style={styles.btn} hitSlop={5}>
+                <Text style={styles.btnIcon}>{pageNote ? '📝' : '✍️'}</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity onPress={toggleSpeech} style={[styles.btn, isSpeaking && styles.speakingBtn]} hitSlop={5}>
+                <Text style={styles.btnIcon}>{isSpeaking ? '⏹️' : '🔊'}</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity onPress={() => setFontSize(Math.max(14, fontSize - 2))} style={styles.btn} hitSlop={5}>
+                <Text style={[styles.btnText, { color: textStyle }]}>A-</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity onPress={() => setFontSize(Math.min(30, fontSize + 2))} style={styles.btn} hitSlop={5}>
+                <Text style={[styles.btnText, { color: textStyle }]}>A+</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity onPress={() => setIsDarkMode(!isDarkMode)} style={[styles.btn, styles.themeBtn]} hitSlop={5}>
+                <Text style={styles.themeText}>{isDarkMode ? '☀️' : '🌙'}</Text>
+            </TouchableOpacity>
         </View>
       </View>
 
+      {/* PAGER VIEW (NỘI DUNG SÁCH) */}
       <PagerView style={styles.pagerView} initialPage={initialPageIndex} onPageSelected={handlePageChange}>
         {pages.map((pageContent, index) => {
             const noteForThisPage = book.pageNotes ? book.pageNotes[index] : null;
             return (
                 <View key={index} style={styles.pageContainer}>
-                    <ScrollView showsVerticalScrollIndicator={false}>
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 50}}>
                         <Text style={styles.bookTitle}>{book.title}</Text>
-                        <Text style={[styles.content, { fontSize: fontSize, color: textStyle, lineHeight: fontSize * 1.6 }]}>{pageContent}</Text>
-                        {noteForThisPage ? (
+                        <Text style={[styles.content, { fontSize: fontSize, color: textStyle, lineHeight: fontSize * 1.6 }]}>
+                            {pageContent}
+                        </Text>
+                        
+                        {noteForThisPage && (
                             <TouchableOpacity onPress={openNoteModal} style={styles.stickyNote}>
                                 <Text style={styles.stickyNoteTitle}>📝 Ghi chú trang này:</Text>
                                 <Text style={styles.stickyNoteContent}>{noteForThisPage}</Text>
                             </TouchableOpacity>
-                        ) : null}
-                        <View style={{height: 50}}/> 
+                        )}
                     </ScrollView>
                 </View>
             )
         })}
       </PagerView>
 
+      {/* FOOTER */}
       <View style={[styles.footer, { backgroundColor: bgStyle, borderTopColor: isDarkMode ? '#333' : '#eee' }]}>
          <View style={{flexDirection: 'row', alignItems: 'center'}}>
-            <Text style={{fontSize: 12, color: isDarkMode ? '#888' : '#666'}}>⏱️ {formatTime(secondsRead)} • Trang {currentPage + 1} / {pages.length}</Text>
+            <Text style={{fontSize: 12, color: isDarkMode ? '#888' : '#666'}}>
+                ⏱️ {formatTime(secondsRead)} • Trang {currentPage + 1} / {pages.length}
+            </Text>
          </View>
-         <View style={styles.progressBarBg}><View style={[styles.progressBarFill, { width: `${((currentPage + 1) / pages.length) * 100}%` }]} /></View>
+         <View style={styles.progressBarBg}>
+            <View style={[styles.progressBarFill, { width: `${((currentPage + 1) / pages.length) * 100}%` }]} />
+         </View>
       </View>
 
+      {/* MODAL NOTE */}
       <Modal animationType="slide" transparent={true} visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
             <View style={styles.modalContent}>
                 <Text style={styles.modalTitle}>Ghi chú cho Trang {currentPage + 1} ✍️</Text>
-                <TextInput style={styles.noteInput} multiline placeholder="Ghi lại suy nghĩ..." value={currentNote} onChangeText={setCurrentNote} autoFocus />
+                <TextInput 
+                    style={styles.noteInput} 
+                    multiline 
+                    placeholder="Ghi lại suy nghĩ..." 
+                    value={currentNote} 
+                    onChangeText={setCurrentNote} 
+                    autoFocus 
+                />
                 <View style={styles.modalButtons}>
-                    <TouchableOpacity style={[styles.modalBtn, styles.cancelBtn]} onPress={() => setModalVisible(false)}><Text style={styles.btnTextSmall}>Đóng</Text></TouchableOpacity>
-                    <TouchableOpacity style={[styles.modalBtn, styles.saveBtn]} onPress={saveNote}><Text style={[styles.btnTextSmall, {color: '#fff'}]}>Lưu</Text></TouchableOpacity>
+                    <TouchableOpacity style={[styles.modalBtn, styles.cancelBtn]} onPress={() => setModalVisible(false)}>
+                        <Text style={styles.btnTextSmall}>Đóng</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.modalBtn, styles.saveBtn]} onPress={saveNote}>
+                        <Text style={[styles.btnTextSmall, {color: '#fff'}]}>Lưu</Text>
+                    </TouchableOpacity>
                 </View>
             </View>
          </KeyboardAvoidingView>
@@ -193,25 +236,55 @@ const ReadBookScreen = ({ route, navigation }) => {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
-  toolbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 10, borderBottomWidth: 1, paddingTop: 40 },
-  backBtn: { padding: 5, width: 80 },
+  // Spacer để xử lý Status Bar trên Android
+  headerSpacer: { height: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
+
+  // TOOLBAR: Sử dụng minHeight và padding hợp lý
+  toolbar: { 
+      flexDirection: 'row', 
+      justifyContent: 'space-between', 
+      alignItems: 'center', 
+      paddingHorizontal: 15, 
+      paddingVertical: 10,
+      borderBottomWidth: 1, 
+  },
+  backBtn: { padding: 5, paddingRight: 15 },
+  
+  // SETTINGS BUTTONS: Responsive spacing
   settings: { flexDirection: 'row', alignItems: 'center' },
-  btn: { marginHorizontal: 2, padding: 5 },
+  btn: { marginHorizontal: 3, padding: 4 },
   speakingBtn: { backgroundColor: '#ffebee', borderRadius: 5 },
-  btnIcon: { fontSize: 18 },
+  btnIcon: { fontSize: 20 },
   btnText: { fontSize: 18, fontWeight: 'bold' },
-  themeBtn: { backgroundColor: '#eee', borderRadius: 15, width: 28, height: 28, justifyContent: 'center', alignItems: 'center' },
-  themeText: { fontSize: 14 },
+  themeBtn: { backgroundColor: '#eee', borderRadius: 15, width: 30, height: 30, justifyContent: 'center', alignItems: 'center' },
+  themeText: { fontSize: 16 },
+
   pagerView: { flex: 1 },
-  pageContainer: { padding: 20, flex: 1 },
-  bookTitle: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 20, textTransform: 'uppercase' },
+  // Page Container: Thêm padding ngang để chữ không sát lề
+  pageContainer: { paddingHorizontal: 20, paddingTop: 20, flex: 1 },
+  
+  bookTitle: { fontSize: 13, color: '#888', textAlign: 'center', marginBottom: 20, textTransform: 'uppercase', letterSpacing: 1 },
   content: { textAlign: 'justify' },
-  stickyNote: { backgroundColor: '#fff9c4', padding: 15, borderRadius: 10, marginTop: 20, borderLeftWidth: 5, borderLeftColor: '#fbc02d', shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.1, elevation: 3 },
+
+  stickyNote: { backgroundColor: '#fff9c4', padding: 15, borderRadius: 10, marginTop: 20, borderLeftWidth: 5, borderLeftColor: '#fbc02d', marginBottom: 20 },
   stickyNoteTitle: { fontWeight: 'bold', color: '#f57f17', marginBottom: 5, fontSize: 12 },
   stickyNoteContent: { color: '#333', fontStyle: 'italic', lineHeight: 20 },
-  footer: { height: 40, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, borderTopWidth: 1 },
+
+  // FOOTER
+  footer: { 
+      height: 50, 
+      flexDirection: 'row', 
+      justifyContent: 'space-between', 
+      alignItems: 'center', 
+      paddingHorizontal: 20, 
+      borderTopWidth: 1,
+      // Đảm bảo không bị Home Indicator che trên iOS
+      paddingBottom: Platform.OS === 'ios' ? 0 : 0 
+  },
   progressBarBg: { width: 100, height: 4, backgroundColor: '#eee', borderRadius: 2 },
   progressBarFill: { height: '100%', backgroundColor: '#007AFF', borderRadius: 2 },
+
+  // FILE VIEW
   fileContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   fileIcon: { fontSize: 80, marginBottom: 20 },
   fileTitle: { fontSize: 22, fontWeight: 'bold', textAlign: 'center', marginBottom: 5, color: '#333' },
@@ -219,10 +292,21 @@ const styles = StyleSheet.create({
   openBtn: { backgroundColor: '#007AFF', paddingHorizontal: 30, paddingVertical: 15, borderRadius: 30, elevation: 5, shadowColor: '#007AFF', shadowOffset: {width:0, height:4}, shadowOpacity:0.3 },
   openBtnText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   noteText: { marginTop: 30, textAlign: 'center', color: '#888', fontSize: 13, fontStyle: 'italic', maxWidth: '80%' },
+
+  // MODAL RESPONSIVE
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, height: '50%' },
+  modalContent: { 
+      backgroundColor: '#fff', 
+      borderTopLeftRadius: 20, borderTopRightRadius: 20, 
+      padding: 20, 
+      // Chiều cao linh động theo màn hình
+      maxHeight: '60%', minHeight: '40%' 
+  },
   modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
-  noteInput: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 10, padding: 15, textAlignVertical: 'top', fontSize: 16, marginBottom: 20 },
+  noteInput: { 
+      flex: 1, backgroundColor: '#f5f5f5', borderRadius: 10, padding: 15, 
+      textAlignVertical: 'top', fontSize: 16, marginBottom: 20, minHeight: 100 
+  },
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between' },
   modalBtn: { flex: 1, padding: 15, borderRadius: 10, alignItems: 'center', marginHorizontal: 5 },
   cancelBtn: { backgroundColor: '#eee' },
