@@ -7,7 +7,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 
-// 👇 IMPORT THÊM 'RANKS' ĐỂ TÍNH TOÁN HIỂN THỊ
 import useBookStore, { RANKS } from '../store/useBookStore';
 
 Notifications.setNotificationHandler({
@@ -17,7 +16,9 @@ Notifications.setNotificationHandler({
 const screenWidth = Dimensions.get('window').width;
 
 const DashboardScreen = ({ navigation }) => {
-  // 👇 LẤY THÊM 'totalMinutesRead' ĐỂ TÍNH RANK
+  // 🔥 LẤY DỮ LIỆU THẬT TỪ STORE
+  // books.length: Số sách thật sự bạn đang có
+  // totalMinutesRead: Tổng thời gian bạn đã đọc
   const { dailyReadingStats, isReminderEnabled, reminderTime, setReminder, books, restoreData, totalMinutesRead } = useBookStore();
 
   useEffect(() => {
@@ -41,274 +42,263 @@ const DashboardScreen = ({ navigation }) => {
       return h > 0 ? `${h}h ${m}p` : `${m}p`;
   };
 
+  // --- 1. LOGIC TÍNH RANK (DANH HIỆU) ---
   const getCurrentRankInfo = () => {
-      // 1. Tìm Rank hiện tại (Rank cao nhất mà phút đọc thỏa mãn)
-      // Reverse để tìm từ cao xuống thấp, gặp cái nào thỏa mãn thì lấy luôn
       const currentRank = RANKS.slice().reverse().find(r => totalMinutesRead >= r.minMinutes) || RANKS[0];
-      
-      // 2. Tìm Rank tiếp theo
       const nextRankIndex = RANKS.findIndex(r => r.id === currentRank.id) + 1;
       const nextRank = RANKS[nextRankIndex];
 
-      // 3. Tính phần trăm tiến độ
-      let progress = 100; // Mặc định Max cấp
-      let nextGoal = "Đã đạt cấp tối đa!";
+      let progress = 100; 
+      let nextGoalText = "Bạn đã đạt cấp độ tối thượng!";
       
       if (nextRank) {
           const range = nextRank.minMinutes - currentRank.minMinutes;
           const current = totalMinutesRead - currentRank.minMinutes;
-          progress = (current / range) * 100;
-          nextGoal = `Cần đọc thêm ${nextRank.minMinutes - totalMinutesRead} phút để lên ${nextRank.title}`;
+          progress = Math.min(100, Math.max(0, (current / range) * 100));
+          nextGoalText = `Đọc thêm ${nextRank.minMinutes - totalMinutesRead} phút để đạt "${nextRank.title}"`;
       }
 
-      return { currentRank, nextRank, progress, nextGoal };
+      return { currentRank, progress, nextGoalText };
   };
+  const { currentRank, progress, nextGoalText } = getCurrentRankInfo();
 
-  const { currentRank, nextRank, progress, nextGoal } = getCurrentRankInfo();
-
-
-  // --- HUY HIỆU (Thành tích) ---
+  // --- 🔥 2. LOGIC TÍNH HUY HIỆU (ĐÃ SỬA ĐỂ HIỂN THỊ TIẾN ĐỘ THẬT) ---
   const calculateBadges = () => {
-      const totalBooks = books.length;
-      let totalMinutes = 0;
-      Object.values(dailyReadingStats).forEach(min => totalMinutes += min);
+      // Dữ liệu thật lấy từ Store
+      const currentBooksCount = books.length; // Biến động thật khi thêm/xóa sách
+      const currentMinutes = totalMinutesRead; // Biến động thật khi đọc sách
 
       const badges = [
-          { id: 1, icon: '🌱', name: 'Khởi đầu', condition: totalBooks >= 1, desc: 'Thêm cuốn đầu tiên' },
-          { id: 2, icon: '🔥', name: 'Chăm chỉ', condition: totalMinutes >= 60, desc: 'Đọc đủ 60 phút' },
-          { id: 3, icon: '📚', name: 'Mọt sách', condition: totalBooks >= 5, desc: 'Tủ sách có 5 cuốn' },
-          { id: 4, icon: '💎', name: 'Bậc thầy', condition: totalMinutes >= 500, desc: 'Đọc đủ 500 phút' },
+          { 
+              id: 1, icon: '🌱', name: 'Khởi đầu', 
+              desc: 'Có 1 cuốn sách', 
+              current: currentBooksCount, target: 1, type: 'book' 
+          },
+          { 
+              id: 2, icon: '📚', name: 'Mọt sách', 
+              desc: 'Tủ sách 5 cuốn', 
+              current: currentBooksCount, target: 5, type: 'book' 
+          },
+          { 
+              id: 3, icon: '🏛️', name: 'Thư viện', 
+              desc: 'Tủ sách 10 cuốn', 
+              current: currentBooksCount, target: 10, type: 'book' 
+          },
+          { 
+              id: 4, icon: '🔥', name: 'Chăm chỉ', 
+              desc: 'Đọc đủ 60 phút', 
+              current: currentMinutes, target: 60, type: 'time' 
+          },
+          { 
+              id: 5, icon: '💎', name: 'Đại gia', 
+              desc: 'Đọc đủ 500 phút', 
+              current: currentMinutes, target: 500, type: 'time' 
+          },
       ];
-      return badges;
+
+      // Map lại để thêm thuộc tính isUnlocked
+      return badges.map(b => ({
+          ...b,
+          isUnlocked: b.current >= b.target,
+          progressPercent: Math.min(100, (b.current / b.target) * 100)
+      }));
   };
   const badges = calculateBadges();
 
-  // --- BACKUP/RESTORE ---
+  // --- 3. THỐNG KÊ CHI TIẾT ---
+  const calculateDetailedStats = () => {
+      const today = new Date().toISOString().split('T')[0];
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      
+      // Tính Streak đơn giản
+      let currentStreak = 0;
+      if (dailyReadingStats[today] || dailyReadingStats[yesterday]) {
+          let checkDate = new Date();
+          while (true) {
+              const dateStr = checkDate.toISOString().split('T')[0];
+              if (dailyReadingStats[dateStr] > 0) {
+                  currentStreak++;
+                  checkDate.setDate(checkDate.getDate() - 1);
+              } else {
+                  if (dateStr === today && currentStreak === 0) { checkDate.setDate(checkDate.getDate() - 1); continue; }
+                  break;
+              }
+          }
+      }
+
+      let totalWeek = 0;
+      const chartData = [];
+      const labels = [];
+      const now = new Date();
+      for (let i = 6; i >= 0; i--) {
+          const d = new Date(); d.setDate(now.getDate() - i);
+          const k = d.toISOString().split('T')[0];
+          const val = dailyReadingStats[k] || 0;
+          totalWeek += val;
+          chartData.push(val);
+          labels.push(`${d.getDate()}/${d.getMonth()+1}`);
+      }
+      
+      return { streak: currentStreak, avgDaily: Math.round(totalMinutesRead / (Object.keys(dailyReadingStats).length || 1)), totalWeek, chartData, labels };
+  };
+  const stats = calculateDetailedStats();
+
+  // --- ACTIONS ---
   const handleBackup = async () => {
       try {
           const state = useBookStore.getState();
-          const backupData = {
-              books: state.books,
-              readingSessions: state.readingSessions,
-              dailyReadingStats: state.dailyReadingStats,
-              settings: state.settings || {},
-              totalMinutesRead: state.totalMinutesRead, // Backup cả tổng thời gian
-              createdAt: new Date().toISOString()
-          };
-
           const path = FileSystem.documentDirectory + 'BookKeeper_Backup.json';
-          await FileSystem.writeAsStringAsync(path, JSON.stringify(backupData), { encoding: 'utf8' });
-
+          await FileSystem.writeAsStringAsync(path, JSON.stringify({ ...state, createdAt: new Date().toISOString() }), { encoding: 'utf8' });
           if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(path);
-          else Alert.alert("Lỗi", "Thiết bị không hỗ trợ chia sẻ.");
-      } catch (error) { Alert.alert("Lỗi Backup", error.message); }
+      } catch (e) { Alert.alert("Lỗi", e.message); }
   };
 
   const handleRestore = async () => {
       try {
           const result = await DocumentPicker.getDocumentAsync({ type: 'application/json' });
-          if (result.canceled) return;
-          Alert.alert(
-              "Cảnh báo quan trọng", "Khôi phục sẽ ghi đè dữ liệu hiện tại. Tiếp tục?",
-              [{ text: "Hủy", style: "cancel" }, { text: "Đồng ý", style: 'destructive', onPress: async () => {
-                  try {
-                      const content = await FileSystem.readAsStringAsync(result.assets[0].uri, { encoding: 'utf8' });
-                      const data = JSON.parse(content);
-                      if (data.books && restoreData) {
-                          restoreData(data);
-                          Alert.alert("Thành công", "Đã khôi phục dữ liệu!");
-                      } else Alert.alert("Lỗi", "File không hợp lệ.");
-                  } catch (e) { Alert.alert("Lỗi đọc file", e.message); }
-              }}]
-          );
-      } catch (error) { Alert.alert("Lỗi Restore", error.message); }
+          if (!result.canceled) {
+              const content = await FileSystem.readAsStringAsync(result.assets[0].uri, { encoding: 'utf8' });
+              const data = JSON.parse(content);
+              if (data.books && restoreData) { restoreData(data); Alert.alert("Thành công!"); }
+          }
+      } catch (e) { Alert.alert("Lỗi", e.message); }
   };
 
-  // --- CHART DATA ---
-  const chartDataRaw = [];
-  const labels = [];
-  let totalWeekMinutes = 0;
-  const today = new Date();
-  for (let i = 6; i >= 0; i--) {
-      const d = new Date(); d.setDate(today.getDate() - i);
-      const dateKey = d.toISOString().split('T')[0]; 
-      const dayLabel = d.getDate() + '/' + (d.getMonth() + 1); 
-      const mins = dailyReadingStats[dateKey] || 0;
-      labels.push(dayLabel);
-      chartDataRaw.push(mins);
-      totalWeekMinutes += mins;
-  }
-  const averageMinutes = Math.round(totalWeekMinutes / 7);
-
-  // --- NOTIFICATIONS ---
-  const getInitialDate = () => {
-      const d = new Date(); d.setHours(reminderTime?.hour || 20); d.setMinutes(reminderTime?.minute || 0); d.setSeconds(0);
-      return d;
-  };
-  const [date, setDate] = useState(getInitialDate());
+  // --- SETTINGS ---
+  const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
-
-  const scheduleNotification = async (triggerDate) => {
-    await Notifications.cancelAllScheduledNotificationsAsync();
-    if (!isReminderEnabled) return; 
-    const hour = triggerDate.getHours();
-    const minute = triggerDate.getMinutes();
-    try {
-        await Notifications.scheduleNotificationAsync({
-          content: { title: "📖 Đến giờ đọc sách rồi!", body: "Duy trì thói quen mỗi ngày bạn nhé.", sound: true },
-          trigger: { type: Notifications.SchedulableTriggerInputTypes.CALENDAR, hour, minute, repeats: true },
-        });
-        Alert.alert("Đã hẹn giờ", `Nhắc lúc ${hour}:${minute < 10 ? '0' + minute : minute} hằng ngày.`);
-    } catch (error) { Alert.alert("Lỗi", error.message); }
-  };
-
-  const testNotificationNow = async () => {
-      try {
-        await Notifications.scheduleNotificationAsync({
-            content: { title: "🔔 Test thử nè!", body: "Thông báo hoạt động tốt nhé sếp!" },
-            trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 2, repeats: false }, 
-        });
-      } catch (error) { Alert.alert("Lỗi Test", error.message); }
-  };
-
-  const onChangeTime = (event, selectedDate) => {
-    if (Platform.OS === 'android') setShowPicker(false);
-    if (selectedDate) {
-        setDate(selectedDate);
-        if (isReminderEnabled) { setReminder(true, { hour: selectedDate.getHours(), minute: selectedDate.getMinutes() }); scheduleNotification(selectedDate); }
-        else { setReminder(false, { hour: selectedDate.getHours(), minute: selectedDate.getMinutes() }); }
-    }
-  };
-
-  const toggleSwitch = async () => {
-      const newState = !isReminderEnabled;
-      setReminder(newState, { hour: date.getHours(), minute: date.getMinutes() });
-      if (newState) await scheduleNotification(date);
-      else await Notifications.cancelAllScheduledNotificationsAsync();
-  };
+  const toggleSwitch = () => setReminder(!isReminderEnabled, { hour: date.getHours(), minute: date.getMinutes() });
+  const onChangeTime = (e, d) => { if(Platform.OS==='android') setShowPicker(false); if(d) { setDate(d); setReminder(isReminderEnabled, { hour: d.getHours(), minute: d.getMinutes() }); } };
 
   return (
-    <ScrollView style={styles.container}>
-      {/* 1. THẺ RANK (MỚI THÊM) */}
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      
+      {/* RANK CARD */}
       <View style={styles.rankCard}>
           <View style={styles.rankHeader}>
               <View>
-                  <Text style={styles.rankLabel}>DANH HIỆU HIỆN TẠI</Text>
+                  <Text style={styles.rankLabel}>DANH HIỆU CỦA BẠN</Text>
                   <Text style={styles.rankTitle}>{currentRank.title}</Text>
-                  <Text style={styles.rankTotal}>Tổng: {totalMinutesRead} phút</Text>
+                  <Text style={styles.rankTotal}>EXP: {totalMinutesRead} phút</Text>
               </View>
               <Text style={styles.rankIcon}>{currentRank.icon}</Text>
           </View>
-          
           <View style={styles.progressBarContainer}>
               <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
           </View>
-          
-          <Text style={styles.rankNextGoal}>{nextGoal}</Text>
+          <Text style={styles.rankNextGoal}>{nextGoalText}</Text>
       </View>
 
-      <Text style={styles.headerTitle}>Thống Kê</Text>
-
-      {/* 2. HUY HIỆU */}
-      <View style={styles.badgeSection}>
-         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {badges.map(badge => (
-                <View key={badge.id} style={[styles.badgeCard, !badge.condition && styles.badgeLocked]}>
-                    <Text style={{fontSize: 32}}>{badge.condition ? badge.icon : '🔒'}</Text>
-                    <Text style={styles.badgeName}>{badge.name}</Text>
-                </View>
-            ))}
-         </ScrollView>
+      {/* STATS GRID */}
+      <View style={styles.statsGrid}>
+          <View style={styles.statItem}><Text style={styles.statVal}>{books.length}</Text><Text style={styles.statLabel}>Sách</Text></View>
+          <View style={styles.statItem}><Text style={styles.statVal}>{stats.streak} 🔥</Text><Text style={styles.statLabel}>Chuỗi</Text></View>
+          <View style={styles.statItem}><Text style={styles.statVal}>{formatTime(stats.totalWeek)}</Text><Text style={styles.statLabel}>Tuần này</Text></View>
+          <View style={styles.statItem}><Text style={styles.statVal}>{stats.avgDaily}p</Text><Text style={styles.statLabel}>TB/Ngày</Text></View>
       </View>
 
-      {/* 3. CHART */}
-      <View style={styles.chartCard}>
-        <Text style={styles.chartTitle}>Hoạt động tuần này</Text>
+      {/* 🔥 BADGES LIST (HIỂN THỊ TIẾN ĐỘ THẬT) */}
+      <Text style={styles.sectionHeader}>Thành Tích & Nhiệm Vụ</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.badgeScroll}>
+         {badges.map(badge => (
+             <View key={badge.id} style={[styles.badgeCard, !badge.isUnlocked && styles.badgeLocked]}>
+                 <View style={styles.badgeIconContainer}>
+                    <Text style={{fontSize: 28}}>{badge.isUnlocked ? badge.icon : '🔒'}</Text>
+                 </View>
+                 
+                 <Text style={styles.badgeName}>{badge.name}</Text>
+                 
+                 {/* 👇 DÒNG NÀY SẼ CHỨNG MINH DỮ LIỆU LÀ THẬT */}
+                 <Text style={styles.badgeProgress}>
+                    {badge.type === 'book' ? `${badge.current}/${badge.target} cuốn` : `${badge.current}/${badge.target} phút`}
+                 </Text>
+
+                 {/* Thanh tiến độ nhỏ bên dưới mỗi badge */}
+                 <View style={styles.miniProgressBg}>
+                    <View style={[styles.miniProgressFill, { width: `${badge.progressPercent}%`, backgroundColor: badge.isUnlocked ? '#34C759' : '#FF9500' }]} />
+                 </View>
+             </View>
+         ))}
+      </ScrollView>
+
+      {/* CHART */}
+      <View style={styles.chartContainer}>
+        <Text style={styles.chartHeader}>Biểu đồ tuần</Text>
         <BarChart
-            data={{ labels: labels, datasets: [{ data: chartDataRaw }] }}
-            width={screenWidth - 60} height={180} yAxisLabel="" yAxisSuffix="" 
+            data={{ labels: stats.labels, datasets: [{ data: stats.chartData }] }}
+            width={screenWidth - 40} height={180} yAxisLabel="" yAxisSuffix="" 
             chartConfig={{
                 backgroundColor: "#fff", backgroundGradientFrom: "#fff", backgroundGradientTo: "#fff",
                 decimalPlaces: 0, color: (opacity = 1) => `rgba(0, 122, 255, ${opacity})`,
-                labelColor: () => `#888`, barPercentage: 0.6,
+                labelColor: () => `#555`, barPercentage: 0.5,
             }}
-            style={{ marginTop: 10 }} showValuesOnTopOfBars={false} withInnerLines={false}
+            style={{ borderRadius: 16 }} showValuesOnTopOfBars={true}
         />
       </View>
 
-      {/* 4. BACKUP */}
-      <Text style={[styles.headerTitle, { marginTop: 10 }]}>Dữ Liệu</Text>
-      <View style={styles.backupContainer}>
-          <TouchableOpacity style={[styles.actionCard, styles.cardBackup]} onPress={handleBackup}>
-              <Text style={{fontSize: 24, marginBottom: 5}}>☁️</Text>
-              <Text style={styles.actionTitle}>Sao Lưu</Text>
+      {/* ACTIONS & SETTINGS */}
+      <Text style={styles.sectionHeader}>Hệ Thống</Text>
+      <View style={styles.backupRow}>
+          <TouchableOpacity style={[styles.actionBtn, {backgroundColor:'#e8f5e9'}]} onPress={handleBackup}>
+              <Text style={{fontSize:20}}>☁️</Text><Text style={[styles.actionText, {color:'green'}]}>Sao Lưu</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionCard, styles.cardRestore]} onPress={handleRestore}>
-              <Text style={{fontSize: 24, marginBottom: 5}}>⚡</Text>
-              <Text style={styles.actionTitle}>Khôi Phục</Text>
+          <TouchableOpacity style={[styles.actionBtn, {backgroundColor:'#fff3e0'}]} onPress={handleRestore}>
+              <Text style={{fontSize:20}}>⚡</Text><Text style={[styles.actionText, {color:'orange'}]}>Khôi Phục</Text>
           </TouchableOpacity>
       </View>
-
-      {/* 5. NOTIFICATION */}
-      <Text style={[styles.headerTitle, { marginTop: 10 }]}>Thông Báo</Text>
-      <View style={styles.settingCard}>
+      
+      <View style={styles.settingBox}>
         <View style={styles.rowBetween}>
-            <Text style={styles.cardTitle}>⏰ Nhắc nhở hằng ngày</Text>
-            <Switch trackColor={{ false: "#e9e9ea", true: "#34C759" }} onValueChange={toggleSwitch} value={isReminderEnabled} />
+            <Text style={styles.settingTitle}>⏰ Nhắc nhở hằng ngày</Text>
+            <Switch onValueChange={toggleSwitch} value={isReminderEnabled} trackColor={{true: "#34C759"}} />
         </View>
-        {isReminderEnabled && (
-             <View style={{marginTop: 10}}>
-                {Platform.OS === 'android' ? (
-                     <TouchableOpacity onPress={() => setShowPicker(true)}><Text style={{color:'#007AFF', fontWeight:'bold', fontSize:16}}>Chỉnh giờ: {date.getHours()}:{date.getMinutes()}</Text></TouchableOpacity>
-                ) : (
-                    <DateTimePicker value={date} mode="time" display="compact" onChange={onChangeTime} />
-                )}
-             </View>
-        )}
-        {showPicker && Platform.OS === 'android' && <DateTimePicker value={date} mode="time" is24Hour={true} onChange={onChangeTime} />}
+        {isReminderEnabled && <TouchableOpacity onPress={()=>setShowPicker(true)}><Text style={{color:'#007AFF', marginTop:5}}>Chỉnh giờ: {date.getHours()}:{date.getMinutes()}</Text></TouchableOpacity>}
+        {showPicker && Platform.OS==='android' && <DateTimePicker value={date} mode="time" is24Hour={true} onChange={onChangeTime} />}
       </View>
 
-      <View style={{height: 100}}/>
+      <View style={{height: 50}}/>
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f2f2f7', padding: 15 },
-  headerTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 10, color: '#000', marginTop: 15 },
+  container: { flex: 1, backgroundColor: '#f5f5f7', padding: 15 },
   
-  // RANK CARD (Mới)
-  rankCard: { backgroundColor: '#333', borderRadius: 16, padding: 20, marginBottom: 10, shadowColor: '#000', shadowOffset: {width:0, height:4}, shadowOpacity:0.3, elevation: 5 },
-  rankHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  rankLabel: { color: '#aaa', fontSize: 12, fontWeight: 'bold', letterSpacing: 1, marginBottom: 5 },
-  rankTitle: { color: '#FFD700', fontSize: 28, fontWeight: 'bold' },
-  rankTotal: { color: '#fff', fontSize: 14, marginTop: 5 },
-  rankIcon: { fontSize: 50 },
-  progressBarContainer: { height: 8, backgroundColor: '#555', borderRadius: 4, overflow: 'hidden', marginBottom: 10 },
-  progressBarFill: { height: '100%', backgroundColor: '#34C759' },
-  rankNextGoal: { color: '#ccc', fontSize: 12, fontStyle: 'italic' },
+  rankCard: { backgroundColor: '#222', borderRadius: 20, padding: 20, marginBottom: 15, shadowColor: '#000', shadowOpacity: 0.3, elevation: 8 },
+  rankHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  rankLabel: { color: '#888', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  rankTitle: { color: '#FFD700', fontSize: 26, fontWeight: 'bold' },
+  rankTotal: { color: '#ccc', fontSize: 13 },
+  rankIcon: { fontSize: 45 },
+  progressBarContainer: { height: 6, backgroundColor: '#444', borderRadius: 3, marginTop: 15 },
+  progressBarFill: { height: '100%', backgroundColor: '#4CD964' },
+  rankNextGoal: { color: '#888', fontSize: 11, marginTop: 8, fontStyle: 'italic', textAlign: 'right' },
 
-  // BADGES
-  badgeSection: { marginBottom: 10 },
-  badgeCard: { backgroundColor: '#fff', padding: 10, borderRadius: 12, marginRight: 10, alignItems: 'center', width: 90, height: 100, justifyContent: 'center' },
-  badgeLocked: { opacity: 0.5, backgroundColor: '#ddd' },
-  badgeName: { fontWeight: 'bold', marginTop: 5, fontSize: 11, textAlign: 'center' },
+  statsGrid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 25 },
+  statItem: { backgroundColor: '#fff', width: '23%', paddingVertical: 15, borderRadius: 12, alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.05, elevation: 2 },
+  statVal: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  statLabel: { fontSize: 11, color: '#888' },
 
-  // CHART
-  chartCard: { backgroundColor: '#fff', borderRadius: 14, padding: 20, alignItems: 'center' },
-  chartTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 10, alignSelf: 'flex-start' },
+  sectionHeader: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 10, marginLeft: 5 },
 
-  // BACKUP
-  backupContainer: { flexDirection: 'row', justifyContent: 'space-between' },
-  actionCard: { backgroundColor: '#fff', width: '48%', padding: 20, borderRadius: 16, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, elevation: 1 },
-  cardBackup: { borderBottomWidth: 3, borderBottomColor: '#34C759' },
-  cardRestore: { borderBottomWidth: 3, borderBottomColor: '#FF9500' },
-  actionTitle: { fontWeight: 'bold', color: '#333' },
+  // 🔥 BADGE CARD STYLES (Đã update để hiện progress)
+  badgeScroll: { marginBottom: 25 },
+  badgeCard: { backgroundColor: '#fff', padding: 10, borderRadius: 12, marginRight: 10, alignItems: 'center', width: 110, height: 130, justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.05, elevation: 1 },
+  badgeLocked: { opacity: 0.6, backgroundColor: '#ececec' },
+  badgeIconContainer: { marginBottom: 5 },
+  badgeName: { fontWeight: 'bold', fontSize: 13, color: '#333', marginBottom: 2 },
+  badgeProgress: { fontSize: 10, color: '#666', marginBottom: 5 }, // Hiển thị số 1/5
+  miniProgressBg: { width: '80%', height: 4, backgroundColor: '#eee', borderRadius: 2 },
+  miniProgressFill: { height: '100%', borderRadius: 2 },
 
-  // SETTINGS
-  settingCard: { backgroundColor: '#fff', borderRadius: 14, padding: 15 },
+  chartContainer: { backgroundColor: '#fff', borderRadius: 16, padding: 15, marginBottom: 25 },
+  chartHeader: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 10 },
+  backupRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  actionBtn: { width: '48%', padding: 15, borderRadius: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
+  actionText: { fontWeight: 'bold', marginLeft: 8 },
+  settingBox: { backgroundColor: '#fff', padding: 20, borderRadius: 16 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardTitle: { fontSize: 16, fontWeight: '500' },
+  settingTitle: { fontSize: 16, fontWeight: '500' },
 });
 
 export default DashboardScreen;
